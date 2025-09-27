@@ -20,7 +20,11 @@ async def on_message(message):
     # Ignore messages from the bot itself
     if message.author == client.user:
         return
-    
+
+    # Current commands for the bot
+    if message.content.startswith('!help'):
+        await message.channel.send('Current commands: !help, !ping')
+
     # Check for !ping command
     if message.content.startswith('!ping'):
         await message.channel.send('PongPongBong!')
