@@ -23,7 +23,7 @@ async def on_message(message):
     
     # Check for !ping command
     if message.content.startswith('!ping'):
-        await message.channel.send('Pong!')
+        await message.channel.send('PongPong!')
 
 # Run the bot wi
 # th your token
