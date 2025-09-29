@@ -21,13 +21,15 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # Current commands for the bot
-    if message.content.startswith('!help'):
-        await message.channel.send('Current commands: !help, !ping')
-
-    # Check for !ping command
-    if message.content.startswith('!ping'):
-        await message.channel.send('PongPongBong!')
+    if message.content.startswith('!'):
+        command = message.content.split()[0][1:]
+        if command == 'help':
+            await message.channel.send('Current commands: !help, !ping')
+        elif command == 'ping':
+            await message.channel.send('PongPongBong!')
+        elif command == 'meme':
+            await message.channel.send('https://i.imgur.com/ljHAAuL.png')
+    
 
 # Run the bot wi
 # th your token
