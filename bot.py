@@ -23,6 +23,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    # Hardcoded messages
     if message.content.startswith('!'):
         command = message.content.split()[0][1:]
         if command == 'help':
@@ -49,8 +50,6 @@ async def on_message(message):
                 ],
             }
         )
-        print(f"Status: {response.status_code}")
-        print(f"Response: {response.text}")
         if response.status_code == 200:
             roast = response.json()['choices'][0]['message']['content']
             await message.channel.send(roast)
