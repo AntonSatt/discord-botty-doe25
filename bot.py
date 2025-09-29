@@ -40,7 +40,7 @@ async def on_message(message):
                 "Content-Type": "application/json",
             },
             json={
-                "model": "openai/gpt-3.5-turbo:free",
+                "model": "x-ai/grok-4-fast:free",
                 "messages": [
                     {
                         "role": "user",
