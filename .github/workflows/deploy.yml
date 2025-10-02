@@ -13,6 +13,7 @@ jobs:
         host: ${{ secrets.DROPLET_HOST }}
         username: root  
         key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 33342
         script: |
           cd /root/devopsuser/bot-app/discord-botty-doe25
           git pull origin main
