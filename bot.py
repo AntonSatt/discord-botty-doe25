@@ -29,7 +29,7 @@ async def on_message(message):
         if command == 'help':
             await message.channel.send('Current commands: !help, !ping, !meme, !roast me')
         elif command == 'ping':
-            await message.channel.send('PongPongBong!')
+            await message.channel.send('You pinged?')
         elif command == 'meme':
             await message.channel.send('https://i.imgur.com/ljHAAuL.png')
 
