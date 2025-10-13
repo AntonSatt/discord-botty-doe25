@@ -41,7 +41,7 @@ async def on_message(message):
                 "Content-Type": "application/json",
             },
             json={
-                "model": "x-ai/grok-4-fast:free",
+                "model": "meta-llama/llama-3.3-70b-instruct:free",
                 "messages": [
                     {
                         "role": "user",
