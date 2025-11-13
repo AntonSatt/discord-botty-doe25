@@ -32,6 +32,7 @@ async def on_message(message):
     # Hardcoded messages
     if message.content.startswith('!'):
         command = message.content.split()[0][1:]
+        print(f"Command received: '{command}' from message: '{message.content}'")
         if command == 'help':
             await message.channel.send('Current commands: !help, !ping, !meme, !roast me, !inactive')
         elif command == 'ping':
