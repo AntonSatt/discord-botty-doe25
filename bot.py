@@ -30,6 +30,7 @@ spam_muted_users = {}  # Track temporarily muted users
 # Create an instance of the bot with command prefix
 intents = discord.Intents.default()
 intents.message_content = True  # Enable reading message content
+intents.members = True  # Enable access to server members (required for !inactive)
 client = discord.Client(intents=intents)
 
 @client.event
@@ -150,6 +151,11 @@ async def on_message(message):
                 await message.channel.send("❌ Permission Denied. This command is owner-only.")
                 return
             
+            # Make sure this is in a guild (server), not a DM
+            if not message.guild:
+                await message.channel.send("❌ This command only works in a server!")
+                return
+            
             # Cooldown check for expensive command
             can_proceed, wait_time = check_command_cooldown(message.author.id, 'inactive', COOLDOWN_EXPENSIVE_COMMANDS)
             if not can_proceed:
@@ -160,33 +166,70 @@ async def on_message(message):
             
             # Send a "processing" message since this might take a moment
             try:
-                status_msg = await message.channel.send("🔍 Scanning message history... This may take a moment.")
+                status_msg = await message.channel.send("🔍 Scanning server members and message history... This may take a moment.")
             except Exception as e:
                 print(f"Failed to send status message: {e}")
                 return
             
             try:
-                # Track last activity time for each user
-                user_last_activity = {}
+                guild = message.guild
                 current_time = datetime.utcnow()
                 
-                # Scan the last 2000 messages (adjust this limit as needed)
-                # For very large servers, you might want to reduce this to 1000
-                message_count = 0
-                async for msg in message.channel.history(limit=1000):
-                    message_count += 1
-                    # Skip bot messages
-                    if msg.author.bot:
-                        continue
-                    
-                    # Track the most recent message for each user
-                    if msg.author.id not in user_last_activity:
-                        user_last_activity[msg.author.id] = {
-                            'name': msg.author.display_name,
-                            'last_seen': msg.created_at
-                        }
+                # Get all members in the server
+                print(f"Fetching members from guild: {guild.name}")
+                await status_msg.edit(content="🔍 Fetching all server members...")
                 
-                print(f"Scanned {message_count} messages, found {len(user_last_activity)} unique users")
+                # Fetch all members (required for large servers)
+                all_members = [member for member in guild.members if not member.bot]
+                print(f"Found {len(all_members)} non-bot members in the server")
+                
+                if len(all_members) == 0:
+                    await status_msg.edit(content="❌ No members found. Make sure the bot has the Server Members Intent enabled!")
+                    return
+                
+                # Track last activity time for each user
+                user_last_activity = {}
+                
+                # Initialize all members with their join date as a fallback
+                for member in all_members:
+                    user_last_activity[member.id] = {
+                        'name': member.display_name,
+                        'last_seen': member.joined_at if member.joined_at else current_time
+                    }
+                
+                # Scan messages across all text channels to find actual activity
+                await status_msg.edit(content="🔍 Scanning message history across all channels...")
+                message_count = 0
+                channels_scanned = 0
+                
+                for channel in guild.text_channels:
+                    try:
+                        # Check if bot has permission to read this channel
+                        if not channel.permissions_for(guild.me).read_message_history:
+                            continue
+                        
+                        channels_scanned += 1
+                        # Scan recent messages in each channel (limit per channel to avoid timeout)
+                        async for msg in channel.history(limit=100):
+                            message_count += 1
+                            # Skip bot messages
+                            if msg.author.bot:
+                                continue
+                            
+                            # Update to the most recent message if we find a later one
+                            if msg.author.id in user_last_activity:
+                                if msg.created_at > user_last_activity[msg.author.id]['last_seen']:
+                                    user_last_activity[msg.author.id]['last_seen'] = msg.created_at
+                    
+                    except discord.Forbidden:
+                        # Skip channels we can't access
+                        continue
+                    except Exception as e:
+                        print(f"Error scanning channel {channel.name}: {e}")
+                        continue
+                
+                print(f"Scanned {message_count} messages across {channels_scanned} channels")
+                print(f"Tracking {len(user_last_activity)} members")
                 
                 # Categorize users by inactivity period
                 inactive_7_days = []
@@ -211,7 +254,7 @@ async def on_message(message):
                 # Create an embed for the report
                 embed = discord.Embed(
                     title="📊 User Inactivity Report",
-                    description=f"Scanned {message_count} messages in this channel",
+                    description=f"Scanned {message_count} messages across {channels_scanned} channels\nTotal server members: {len(all_members)}",
                     color=discord.Color.blue(),
                     timestamp=current_time
                 )
@@ -249,21 +292,21 @@ async def on_message(message):
                 
                 # If no inactive users found
                 if not inactive_7_days and not inactive_14_days and not inactive_30_days:
-                    embed.description = f"Scanned {message_count} messages in this channel\n\n✅ No inactive users found in the specified timeframes!"
+                    embed.description = f"Scanned {message_count} messages across {channels_scanned} channels\nTotal server members: {len(all_members)}\n\n✅ No inactive users found in the specified timeframes!"
                 
-                embed.set_footer(text=f"Total unique users found: {len(user_last_activity)}")
+                embed.set_footer(text=f"Total members analyzed: {len(user_last_activity)}")
                 
                 # Delete the status message and send the report
                 await status_msg.delete()
                 await message.channel.send(embed=embed)
-                print("Report sent successfully!")
+                print("Inactivity report sent successfully!")
                 
             except discord.Forbidden as e:
                 print(f"Permission error: {e}")
                 try:
-                    await status_msg.edit(content="❌ Error: I don't have permission to read message history in this channel.")
+                    await status_msg.edit(content="❌ Error: I don't have permission to read message history or access server members. Make sure Server Members Intent and Read Message History are enabled!")
                 except:
-                    await message.channel.send("❌ Error: I don't have permission to read message history in this channel.")
+                    await message.channel.send("❌ Error: I don't have permission to read message history or access server members.")
             except Exception as e:
                 print(f"Error in !inactive command: {e}")
                 import traceback

@@ -1,4 +1,17 @@
 # Devlog - Discord bot
+## Wednesday November 13th, 2025 (Evening Update)
+### Fixed !inactive Command:
+- **Problem**: Command only scanned the current channel, missing most server members
+- **Solution**: Now scans ALL server members and checks activity across all text channels
+- Changes made:
+  - Fetches complete member list using `guild.members`
+  - Scans message history across all accessible text channels (100 messages per channel)
+  - Uses member join date as fallback if no messages found
+  - Added progress status messages during scan
+  - Better error handling for missing permissions
+  - Enabled `intents.members = True` in code
+- Command now works properly in large servers with many members
+
 ## Wednesday November 13th, 2025
 ### Things that were done today:
 - Added comprehensive safety features to prevent bot abuse:
