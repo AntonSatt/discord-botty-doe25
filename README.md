@@ -30,7 +30,13 @@ This command helps you identify inactive members in your server. It works privat
 - Categories members by inactivity:
   - 🟢 7-13 days inactive
   - 🟡 14-29 days inactive
-  - 🔔 30+ days inactive
+  - � 30+ days inactive
+
+### What Counts as "Inactive":
+- **Inactive** = No text messages sent in X days
+- Tracks **only text messages** (not voice activity, reactions, or edits)
+- Falls back to member join date if no messages found
+- Only scans last 100 messages per channel
 
 ### Requirements:
 The bot needs these permissions enabled in Discord Developer Portal:
