@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import requests
 from datetime import datetime, timedelta
 from collections import defaultdict
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -14,6 +15,18 @@ AI_API_TOKEN = os.getenv('OPENROUTER_API_KEY')  # Or change to 'OpenRouterAPIKey
 # To get your ID: Enable Developer Mode in Discord settings, right-click your name, "Copy User ID"
 OWNER_ID = 172342196945551361  # Replace with your actual Discord user ID (e.g., 123456789012345678)
 
+# Safety Configuration
+RATE_LIMIT_SECONDS = 3  # Minimum seconds between commands per user
+COOLDOWN_EXPENSIVE_COMMANDS = 30  # Cooldown for AI/expensive commands (seconds)
+MAX_MESSAGES_PER_MINUTE = 10  # Maximum messages from one user per minute
+SPAM_MUTE_DURATION = 60  # Seconds to ignore a spammer
+
+# Tracking dictionaries for safety features
+user_last_command = {}  # Track last command time per user
+user_command_cooldowns = defaultdict(dict)  # Track cooldowns per command per user
+user_message_history = defaultdict(list)  # Track message timestamps for spam detection
+spam_muted_users = {}  # Track temporarily muted users
+
 # Create an instance of the bot with command prefix
 intents = discord.Intents.default()
 intents.message_content = True  # Enable reading message content
@@ -22,17 +35,106 @@ client = discord.Client(intents=intents)
 @client.event
 async def on_ready():
     print(f'{client.user} has logged in!')  # Confirm it's working
+    print(f'Safety features enabled:')
+    print(f'- Rate limit: {RATE_LIMIT_SECONDS}s between commands')
+    print(f'- AI command cooldown: {COOLDOWN_EXPENSIVE_COMMANDS}s')
+    print(f'- Anti-spam: Max {MAX_MESSAGES_PER_MINUTE} messages/minute')
+
+def is_spam(user_id):
+    """Check if a user is spamming based on message frequency"""
+    current_time = time.time()
+    
+    # Clean old message timestamps (older than 1 minute)
+    user_message_history[user_id] = [
+        timestamp for timestamp in user_message_history[user_id]
+        if current_time - timestamp < 60
+    ]
+    
+    # Add current message timestamp
+    user_message_history[user_id].append(current_time)
+    
+    # Check if user exceeded the limit
+    if len(user_message_history[user_id]) > MAX_MESSAGES_PER_MINUTE:
+        return True
+    return False
+
+def is_muted(user_id):
+    """Check if a user is temporarily muted for spamming"""
+    if user_id in spam_muted_users:
+        if time.time() - spam_muted_users[user_id] < SPAM_MUTE_DURATION:
+            return True
+        else:
+            # Unmute user after duration
+            del spam_muted_users[user_id]
+    return False
+
+def check_rate_limit(user_id):
+    """Check if user is rate limited (basic cooldown between any commands)"""
+    current_time = time.time()
+    if user_id in user_last_command:
+        time_since_last = current_time - user_last_command[user_id]
+        if time_since_last < RATE_LIMIT_SECONDS:
+            return False, RATE_LIMIT_SECONDS - time_since_last
+    user_last_command[user_id] = current_time
+    return True, 0
+
+def check_command_cooldown(user_id, command_name, cooldown_duration):
+    """Check if a specific command is on cooldown for a user"""
+    current_time = time.time()
+    if command_name in user_command_cooldowns[user_id]:
+        time_since_last = current_time - user_command_cooldowns[user_id][command_name]
+        if time_since_last < cooldown_duration:
+            return False, cooldown_duration - time_since_last
+    user_command_cooldowns[user_id][command_name] = current_time
+    return True, 0
 
 @client.event
 async def on_message(message):
     # Ignore messages from the bot itself
     if message.author == client.user:
         return
+    
+    # Block DMs - bot only works in servers
+    if isinstance(message.channel, discord.DMChannel):
+        await message.channel.send("❌ Sorry, I don't respond to DMs. Please use me in a server!")
+        print(f"Blocked DM from {message.author.name} (ID: {message.author.id})")
+        return
+    
+    # Check if user is temporarily muted for spamming
+    if is_muted(message.author.id):
+        # Silently ignore muted users
+        return
+    
+    # Spam detection
+    if is_spam(message.author.id):
+        spam_muted_users[message.author.id] = time.time()
+        try:
+            await message.channel.send(
+                f"⚠️ {message.author.mention} Slow down! You're sending messages too quickly. "
+                f"You've been temporarily muted for {SPAM_MUTE_DURATION} seconds."
+            )
+        except:
+            pass
+        print(f"User {message.author.name} (ID: {message.author.id}) muted for spam")
+        return
 
     # Hardcoded messages
     if message.content.startswith('!'):
         command = message.content.split()[0][1:]
         print(f"Command received: '{command}' from message: '{message.content}'")
+        
+        # Rate limiting check (applies to all commands)
+        can_proceed, wait_time = check_rate_limit(message.author.id)
+        if not can_proceed:
+            try:
+                await message.channel.send(
+                    f"⏱️ {message.author.mention} Please wait {wait_time:.1f} seconds before using another command.",
+                    delete_after=5
+                )
+            except:
+                pass
+            return
+        
         if command == 'help':
             await message.channel.send('Current commands: !help, !ping, !meme, !roast me, !inactive')
         elif command == 'ping':
@@ -46,6 +148,14 @@ async def on_message(message):
             # Permission check: Only the owner can use this command
             if message.author.id != OWNER_ID:
                 await message.channel.send("❌ Permission Denied. This command is owner-only.")
+                return
+            
+            # Cooldown check for expensive command
+            can_proceed, wait_time = check_command_cooldown(message.author.id, 'inactive', COOLDOWN_EXPENSIVE_COMMANDS)
+            if not can_proceed:
+                await message.channel.send(
+                    f"⏱️ This command is on cooldown. Please wait {wait_time:.1f} seconds."
+                )
                 return
             
             # Send a "processing" message since this might take a moment
@@ -63,7 +173,7 @@ async def on_message(message):
                 # Scan the last 2000 messages (adjust this limit as needed)
                 # For very large servers, you might want to reduce this to 1000
                 message_count = 0
-                async for msg in message.channel.history(limit=2000):
+                async for msg in message.channel.history(limit=1000):
                     message_count += 1
                     # Skip bot messages
                     if msg.author.bot:
@@ -164,27 +274,51 @@ async def on_message(message):
                     await message.channel.send(f"❌ An error occurred: {str(e)}")
 
     if message.content.startswith('!roast me'):
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {AI_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "google/gemini-2.0-flash-exp:free",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": f"Write a short, brutal, funny roast for Discord user {message.author.name}. Keep it Discord-safe, under 50 words."
-                    }
-                ],
-            }
-        )
-        if response.status_code == 200:
-            roast = response.json()['choices'][0]['message']['content']
-            await message.channel.send(roast)
-        else:
-            await message.channel.send(f"Oof, roast failed: {response.status_code}. Try again?")
+        # Cooldown check for AI command
+        can_proceed, wait_time = check_command_cooldown(message.author.id, 'roast', COOLDOWN_EXPENSIVE_COMMANDS)
+        if not can_proceed:
+            await message.channel.send(
+                f"🔥 {message.author.mention} The roaster needs to cool down! Wait {wait_time:.1f} seconds.",
+                delete_after=10
+            )
+            return
+        
+        # Check if AI API token is configured
+        if not AI_API_TOKEN:
+            await message.channel.send("❌ AI API is not configured. Contact the bot owner.")
+            return
+        
+        try:
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {AI_API_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "google/gemini-2.0-flash-exp:free",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": f"Write a short, brutal, funny roast for Discord user {message.author.name}. Keep it Discord-safe, under 50 words."
+                        }
+                    ],
+                },
+                timeout=10  # Add timeout to prevent hanging
+            )
+            if response.status_code == 200:
+                roast = response.json()['choices'][0]['message']['content']
+                await message.channel.send(roast)
+            else:
+                await message.channel.send(f"Oof, roast failed: {response.status_code}. Try again later.")
+        except requests.exceptions.Timeout:
+            await message.channel.send("⏱️ The AI took too long to respond. Try again later.")
+        except requests.exceptions.RequestException as e:
+            await message.channel.send("❌ Network error occurred. Try again later.")
+            print(f"Request error in !roast me: {e}")
+        except Exception as e:
+            await message.channel.send("❌ An unexpected error occurred.")
+            print(f"Error in !roast me: {e}")
 
 # Run the bot with your token
 client.run(TOKEN)
