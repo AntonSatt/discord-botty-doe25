@@ -166,7 +166,11 @@ async def on_message(message):
             
             # Send a "processing" message since this might take a moment
             try:
-                status_msg = await message.channel.send("🔍 Scanning server members and message history... This may take a moment.")
+                status_msg = await message.channel.send(
+                    "🔍 **Scanning entire server for inactive members...**\n"
+                    "This will check ALL channels (results posted here privately).\n"
+                    "Please wait, this may take 10-30 seconds..."
+                )
             except Exception as e:
                 print(f"Failed to send status message: {e}")
                 return
@@ -198,20 +202,33 @@ async def on_message(message):
                     }
                 
                 # Scan messages across all text channels to find actual activity
-                await status_msg.edit(content="🔍 Scanning message history across all channels...")
+                await status_msg.edit(content="🔍 Scanning message history across all server channels...")
                 message_count = 0
                 channels_scanned = 0
+                channels_with_permissions = 0
+                
+                # Count how many channels we have permission to read
+                for channel in guild.text_channels:
+                    if channel.permissions_for(guild.me).read_message_history:
+                        channels_with_permissions += 1
+                
+                print(f"Found {len(guild.text_channels)} text channels, bot has permission to read {channels_with_permissions} of them")
                 
                 for channel in guild.text_channels:
                     try:
                         # Check if bot has permission to read this channel
                         if not channel.permissions_for(guild.me).read_message_history:
+                            print(f"Skipping channel '{channel.name}' - no read permission")
                             continue
                         
                         channels_scanned += 1
+                        print(f"Scanning channel '{channel.name}' ({channels_scanned}/{channels_with_permissions})...")
+                        
                         # Scan recent messages in each channel (limit per channel to avoid timeout)
+                        channel_msg_count = 0
                         async for msg in channel.history(limit=100):
                             message_count += 1
+                            channel_msg_count += 1
                             # Skip bot messages
                             if msg.author.bot:
                                 continue
@@ -220,16 +237,19 @@ async def on_message(message):
                             if msg.author.id in user_last_activity:
                                 if msg.created_at > user_last_activity[msg.author.id]['last_seen']:
                                     user_last_activity[msg.author.id]['last_seen'] = msg.created_at
+                        
+                        print(f"  → Found {channel_msg_count} messages in '{channel.name}'")
                     
                     except discord.Forbidden:
                         # Skip channels we can't access
+                        print(f"Forbidden: Cannot access channel '{channel.name}'")
                         continue
                     except Exception as e:
                         print(f"Error scanning channel {channel.name}: {e}")
                         continue
                 
-                print(f"Scanned {message_count} messages across {channels_scanned} channels")
-                print(f"Tracking {len(user_last_activity)} members")
+                print(f"✓ Scanned {message_count} messages across {channels_scanned} channels")
+                print(f"✓ Tracking {len(user_last_activity)} members")
                 
                 # Categorize users by inactivity period
                 inactive_7_days = []
