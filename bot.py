@@ -39,13 +39,20 @@ async def on_message(message):
         elif command == 'meme':
             await message.channel.send('https://i.imgur.com/ljHAAuL.png')
         elif command == 'inactive':
+            print(f"!inactive command triggered by {message.author.name} (ID: {message.author.id})")
+            print(f"OWNER_ID is set to: {OWNER_ID}")
+            
             # Permission check: Only the owner can use this command
             if message.author.id != OWNER_ID:
                 await message.channel.send("❌ Permission Denied. This command is owner-only.")
                 return
             
             # Send a "processing" message since this might take a moment
-            status_msg = await message.channel.send("🔍 Scanning message history... This may take a moment.")
+            try:
+                status_msg = await message.channel.send("🔍 Scanning message history... This may take a moment.")
+            except Exception as e:
+                print(f"Failed to send status message: {e}")
+                return
             
             try:
                 # Track last activity time for each user
@@ -67,6 +74,8 @@ async def on_message(message):
                             'name': msg.author.display_name,
                             'last_seen': msg.created_at
                         }
+                
+                print(f"Scanned {message_count} messages, found {len(user_last_activity)} unique users")
                 
                 # Categorize users by inactivity period
                 inactive_7_days = []
@@ -136,12 +145,22 @@ async def on_message(message):
                 # Delete the status message and send the report
                 await status_msg.delete()
                 await message.channel.send(embed=embed)
+                print("Report sent successfully!")
                 
-            except discord.Forbidden:
-                await status_msg.edit(content="❌ Error: I don't have permission to read message history in this channel.")
+            except discord.Forbidden as e:
+                print(f"Permission error: {e}")
+                try:
+                    await status_msg.edit(content="❌ Error: I don't have permission to read message history in this channel.")
+                except:
+                    await message.channel.send("❌ Error: I don't have permission to read message history in this channel.")
             except Exception as e:
-                await status_msg.edit(content=f"❌ An error occurred: {str(e)}")
                 print(f"Error in !inactive command: {e}")
+                import traceback
+                traceback.print_exc()
+                try:
+                    await status_msg.edit(content=f"❌ An error occurred: {str(e)}")
+                except:
+                    await message.channel.send(f"❌ An error occurred: {str(e)}")
 
     if message.content.startswith('!roast me'):
         response = requests.post(
