@@ -2,7 +2,7 @@ import os
 import discord
 from dotenv import load_dotenv
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import time
 
@@ -177,7 +177,7 @@ async def on_message(message):
             
             try:
                 guild = message.guild
-                current_time = datetime.utcnow()
+                current_time = datetime.now(timezone.utc)
                 
                 # Get all members in the server
                 print(f"Fetching members from guild: {guild.name}")
