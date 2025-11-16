@@ -15,6 +15,9 @@ AI_API_TOKEN = os.getenv('OPENROUTER_API_KEY')  # Or change to 'OpenRouterAPIKey
 # To get your ID: Enable Developer Mode in Discord settings, right-click your name, "Copy User ID"
 OWNER_ID = 172342196945551361  # Replace with your actual Discord user ID (e.g., 123456789012345678)
 
+# AI MODEL CONFIGURATION
+AI_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+
 # Safety Configuration
 RATE_LIMIT_SECONDS = 3  # Minimum seconds between commands per user
 COOLDOWN_EXPENSIVE_COMMANDS = 30  # Cooldown for AI/expensive commands (seconds)
@@ -359,7 +362,7 @@ async def on_message(message):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "google/gemini-2.0-flash-exp:free",
+                    "model": AI_MODEL,
                     "messages": [
                         {
                             "role": "user",
