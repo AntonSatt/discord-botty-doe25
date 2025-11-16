@@ -11,9 +11,9 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 AI_API_TOKEN = os.getenv('OPENROUTER_API_KEY')  # Or change to 'OpenRouterAPIKey' if that's your .env name
 
-# IMPORTANT: Replace this with your Discord User ID
+# IMPORTANT: Replace this with your Discord User ID(s)
 # To get your ID: Enable Developer Mode in Discord settings, right-click your name, "Copy User ID"
-OWNER_ID = 172342196945551361  # Replace with your actual Discord user ID (e.g., 123456789012345678)
+OWNER_ID = [172342196945551361, 376786371672801280]  # List of authorized user IDs for !inactive command
 
 # AI MODEL CONFIGURATION
 AI_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
@@ -149,8 +149,8 @@ async def on_message(message):
             print(f"!inactive command triggered by {message.author.name} (ID: {message.author.id})")
             print(f"OWNER_ID is set to: {OWNER_ID}")
             
-            # Permission check: Only the owner can use this command
-            if message.author.id != OWNER_ID:
+            # Permission check: Only authorized users can use this command
+            if message.author.id not in OWNER_ID:
                 await message.channel.send("❌ Permission Denied. This command is owner-only.")
                 return
             
