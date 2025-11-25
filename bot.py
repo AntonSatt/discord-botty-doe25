@@ -248,11 +248,12 @@ async def on_message(message):
                         # Scan recent messages in each channel (limit per channel to avoid timeout)
                         channel_msg_count = 0
                         async for msg in channel.history(limit=200):
-                            message_count += 1
-                            channel_msg_count += 1
                             # Skip bot messages
                             if msg.author.bot:
                                 continue
+
+                            message_count += 1
+                            channel_msg_count += 1
                             
                             # Update to the most recent message if we find a later one
                             if msg.author.id in user_last_activity:
@@ -397,12 +398,11 @@ async def on_message(message):
                             if msg.author.bot:
                                 continue
                             
+                            message_count += 1
                             user_message_counts[msg.author.id] += 1
                             # Update name to most recent display name
                             if msg.author.id not in user_names:
                                 user_names[msg.author.id] = msg.author.display_name
-                            
-                            message_count += 1
                             
                     except discord.Forbidden:
                         continue
