@@ -19,6 +19,7 @@ jobs:
         port: 33342
         script: |
           cd /root/devopsuser/bot-app/discord-botty-doe25
+          git switch main
           git pull origin main
           source venv/bin/activate
           pip install -r requirements.txt --upgrade
@@ -38,6 +39,7 @@ jobs:
         port: 33342
         script: |
           cd /root/devopsuser/bot-app/test/discord-botty-doe25
+          git switch develop
           git pull origin develop
           source venv/bin/activate
           pip install -r requirements.txt --upgrade
