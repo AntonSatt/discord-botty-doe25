@@ -10,6 +10,7 @@ import time
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 AI_API_TOKEN = os.getenv('OPENROUTER_API_KEY')  # Or change to 'OpenRouterAPIKey' if that's your .env name
+HUMOR_API_KEY = os.getenv('HUMOR_API_KEY')
 
 # IMPORTANT: Replace this with your Discord User ID(s)
 # To get your ID: Enable Developer Mode in Discord settings, right-click your name, "Copy User ID"
@@ -140,11 +141,28 @@ async def on_message(message):
             return
         
         if command == 'help':
-            await message.channel.send('Current commands: !help, !ping, !meme, !roast me, !inactive')
+            await message.channel.send('Current commands: !help, !ping, !meme, !roastme, !inactive, !topchatter')
         elif command == 'ping':
             await message.channel.send('You pinged? :)')
         elif command == 'meme':
-            await message.channel.send('https://i.imgur.com/ljHAAuL.png')
+            if not HUMOR_API_KEY:
+                await message.channel.send("❌ Humor API key is not configured.")
+                return
+
+            try:
+                response = requests.get(
+                    "https://api.humorapi.com/memes/random",
+                    params={"api-key": HUMOR_API_KEY},
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    await message.channel.send(data['url'])
+                else:
+                    await message.channel.send(f"Failed to fetch meme: {response.status_code}")
+            except Exception as e:
+                print(f"Error fetching meme: {e}")
+                await message.channel.send("❌ An error occurred while fetching a meme.")
         elif command == 'inactive':
             print(f"!inactive command triggered by {message.author.name} (ID: {message.author.id})")
             print(f"OWNER_ID is set to: {OWNER_ID}")
@@ -229,12 +247,13 @@ async def on_message(message):
                         
                         # Scan recent messages in each channel (limit per channel to avoid timeout)
                         channel_msg_count = 0
-                        async for msg in channel.history(limit=100):
-                            message_count += 1
-                            channel_msg_count += 1
+                        async for msg in channel.history(limit=200):
                             # Skip bot messages
                             if msg.author.bot:
                                 continue
+
+                            message_count += 1
+                            channel_msg_count += 1
                             
                             # Update to the most recent message if we find a later one
                             if msg.author.id in user_last_activity:
@@ -339,52 +358,138 @@ async def on_message(message):
                 except:
                     await message.channel.send(f"❌ An error occurred: {str(e)}")
 
-    if message.content.startswith('!roast me'):
-        # Cooldown check for AI command
-        can_proceed, wait_time = check_command_cooldown(message.author.id, 'roast', COOLDOWN_EXPENSIVE_COMMANDS)
-        if not can_proceed:
-            await message.channel.send(
-                f"🔥 {message.author.mention} The roaster needs to cool down! Wait {wait_time:.1f} seconds.",
-                delete_after=10
-            )
-            return
-        
-        # Check if AI API token is configured
-        if not AI_API_TOKEN:
-            await message.channel.send("❌ AI API is not configured. Contact the bot owner.")
-            return
-        
-        try:
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {AI_API_TOKEN}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": f"Write a short, brutal, funny roast for Discord user {message.author.name}. Keep it Discord-safe, under 50 words."
-                        }
-                    ],
-                },
-                timeout=10  # Add timeout to prevent hanging
-            )
-            if response.status_code == 200:
-                roast = response.json()['choices'][0]['message']['content']
-                await message.channel.send(roast)
-            else:
-                await message.channel.send(f"Oof, roast failed: {response.status_code}. Try again later.")
-        except requests.exceptions.Timeout:
-            await message.channel.send("⏱️ The AI took too long to respond. Try again later.")
-        except requests.exceptions.RequestException as e:
-            await message.channel.send("❌ Network error occurred. Try again later.")
-            print(f"Request error in !roast me: {e}")
-        except Exception as e:
-            await message.channel.send("❌ An unexpected error occurred.")
-            print(f"Error in !roast me: {e}")
+        elif command == 'topchatter':
+            # Cooldown check
+            can_proceed, wait_time = check_command_cooldown(message.author.id, 'topchatter', COOLDOWN_EXPENSIVE_COMMANDS)
+            if not can_proceed:
+                await message.channel.send(
+                    f"⏱️ This command is on cooldown. Please wait {wait_time:.1f} seconds."
+                )
+                return
+
+            # Send a "processing" message
+            try:
+                status_msg = await message.channel.send(
+                    "🔍 **Calculating top chatters...**\n"
+                    "Scanning recent channel history (this may take a moment)..."
+                )
+            except Exception as e:
+                print(f"Failed to send status message: {e}")
+                return
+
+            try:
+                guild = message.guild
+                
+                # Track message counts
+                user_message_counts = defaultdict(int)
+                user_names = {}
+                
+                message_count = 0
+                channels_scanned = 0
+                
+                for channel in guild.text_channels:
+                    try:
+                        if not channel.permissions_for(guild.me).read_message_history:
+                            continue
+                        
+                        channels_scanned += 1
+                        
+                        async for msg in channel.history(limit=200):
+                            if msg.author.bot:
+                                continue
+                            
+                            message_count += 1
+                            user_message_counts[msg.author.id] += 1
+                            # Update name to most recent display name
+                            if msg.author.id not in user_names:
+                                user_names[msg.author.id] = msg.author.display_name
+                            
+                    except discord.Forbidden:
+                        continue
+                    except Exception as e:
+                        print(f"Error scanning channel {channel.name}: {e}")
+                        continue
+                
+                # Sort by message count
+                sorted_chatters = sorted(user_message_counts.items(), key=lambda x: x[1], reverse=True)
+                
+                # Create embed
+                embed = discord.Embed(
+                    title="🏆 Top Chatters (Recent History)",
+                    description=f"Scanned {message_count} messages across {channels_scanned} channels.",
+                    color=discord.Color.gold(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                
+                if sorted_chatters:
+                    top_list = ""
+                    for i, (user_id, count) in enumerate(sorted_chatters[:10], 1):
+                        name = user_names.get(user_id, "Unknown")
+                        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                        top_list += f"{medal} **{name}**: {count} messages\n"
+                    
+                    embed.add_field(name="Most Active Users", value=top_list, inline=False)
+                else:
+                    embed.description += "\n\n❌ No messages found in the scanned history."
+                
+                await status_msg.delete()
+                await message.channel.send(embed=embed)
+                
+            except Exception as e:
+                print(f"Error in !topchatter: {e}")
+                try:
+                    await status_msg.edit(content=f"❌ An error occurred: {str(e)}")
+                except:
+                    pass
+
+        elif command == 'roastme':
+            # Cooldown check for AI command
+            can_proceed, wait_time = check_command_cooldown(message.author.id, 'roast', COOLDOWN_EXPENSIVE_COMMANDS)
+            if not can_proceed:
+                await message.channel.send(
+                    f"🔥 {message.author.mention} The roaster needs to cool down! Wait {wait_time:.1f} seconds.",
+                    delete_after=10
+                )
+                return
+            
+            # Check if AI API token is configured
+            if not AI_API_TOKEN:
+                await message.channel.send("❌ AI API is not configured. Contact the bot owner.")
+                return
+            
+            try:
+                response = requests.post(
+                    url="https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {AI_API_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": AI_MODEL,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": f"Write a short, brutal, funny roast for Discord user {message.author.name}. Keep it Discord-safe, under 50 words."
+                            }
+                        ],
+                    },
+                    timeout=10  # Add timeout to prevent hanging
+                )
+                if response.status_code == 200:
+                    roast = response.json()['choices'][0]['message']['content']
+                    await message.channel.send(roast)
+                else:
+                    await message.channel.send(f"Oof, roast failed: {response.status_code}. Try again later.")
+            except requests.exceptions.Timeout:
+                await message.channel.send("⏱️ The AI took too long to respond. Try again later.")
+            except requests.exceptions.RequestException as e:
+                await message.channel.send("❌ Network error occurred. Try again later.")
+                print(f"Request error in !roastme: {e}")
+            except Exception as e:
+                await message.channel.send("❌ An unexpected error occurred.")
+                print(f"Error in !roastme: {e}")
+
+
 
 # Run the bot with your token
 client.run(TOKEN)

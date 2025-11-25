@@ -40,3 +40,6 @@
 ### Things that I struggled with:
 - It a little while to get the autodeployment to work with GitHub Actions 
     - Why? It was messy to get GitHub to connect to the Droplet. SSH failed a few times. When looking back at it I think it was because did a typo or something to do with chmod 600 ~/.ssh/authorized_keys. Not sure. 
+
+### Fixed workflow for develop branch
+- Had problems with workflow.
