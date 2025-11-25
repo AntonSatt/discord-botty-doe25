@@ -140,7 +140,7 @@ async def on_message(message):
             return
         
         if command == 'help':
-            await message.channel.send('Current commands: !help, !ping, !meme, !roast me, !inactive')
+            await message.channel.send('Current commands: !help, !ping, !meme, !roastme, !inactive, !topchatter')
         elif command == 'ping':
             await message.channel.send('You pinged? :)')
         elif command == 'meme':
@@ -229,7 +229,7 @@ async def on_message(message):
                         
                         # Scan recent messages in each channel (limit per channel to avoid timeout)
                         channel_msg_count = 0
-                        async for msg in channel.history(limit=100):
+                        async for msg in channel.history(limit=200):
                             message_count += 1
                             channel_msg_count += 1
                             # Skip bot messages
@@ -339,7 +339,92 @@ async def on_message(message):
                 except:
                     await message.channel.send(f"❌ An error occurred: {str(e)}")
 
-    if message.content.startswith('!roast me'):
+    elif command == 'topchatter':
+        # Cooldown check
+        can_proceed, wait_time = check_command_cooldown(message.author.id, 'topchatter', COOLDOWN_EXPENSIVE_COMMANDS)
+        if not can_proceed:
+            await message.channel.send(
+                f"⏱️ This command is on cooldown. Please wait {wait_time:.1f} seconds."
+            )
+            return
+
+        # Send a "processing" message
+        try:
+            status_msg = await message.channel.send(
+                "🔍 **Calculating top chatters...**\n"
+                "Scanning recent channel history (this may take a moment)..."
+            )
+        except Exception as e:
+            print(f"Failed to send status message: {e}")
+            return
+
+        try:
+            guild = message.guild
+            
+            # Track message counts
+            user_message_counts = defaultdict(int)
+            user_names = {}
+            
+            message_count = 0
+            channels_scanned = 0
+            
+            for channel in guild.text_channels:
+                try:
+                    if not channel.permissions_for(guild.me).read_message_history:
+                        continue
+                    
+                    channels_scanned += 1
+                    
+                    async for msg in channel.history(limit=200):
+                        if msg.author.bot:
+                            continue
+                        
+                        user_message_counts[msg.author.id] += 1
+                        # Update name to most recent display name
+                        if msg.author.id not in user_names:
+                            user_names[msg.author.id] = msg.author.display_name
+                        
+                        message_count += 1
+                        
+                except discord.Forbidden:
+                    continue
+                except Exception as e:
+                    print(f"Error scanning channel {channel.name}: {e}")
+                    continue
+            
+            # Sort by message count
+            sorted_chatters = sorted(user_message_counts.items(), key=lambda x: x[1], reverse=True)
+            
+            # Create embed
+            embed = discord.Embed(
+                title="🏆 Top Chatters (Recent History)",
+                description=f"Scanned {message_count} messages across {channels_scanned} channels.",
+                color=discord.Color.gold(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            if sorted_chatters:
+                top_list = ""
+                for i, (user_id, count) in enumerate(sorted_chatters[:10], 1):
+                    name = user_names.get(user_id, "Unknown")
+                    medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                    top_list += f"{medal} **{name}**: {count} messages\n"
+                
+                embed.add_field(name="Most Active Users", value=top_list, inline=False)
+            else:
+                embed.description += "\n\n❌ No messages found in the scanned history."
+            
+            await status_msg.delete()
+            await message.channel.send(embed=embed)
+            
+        except Exception as e:
+            print(f"Error in !topchatter: {e}")
+            try:
+                await status_msg.edit(content=f"❌ An error occurred: {str(e)}")
+            except:
+                pass
+
+    if message.content.startswith('!roastme'):
         # Cooldown check for AI command
         can_proceed, wait_time = check_command_cooldown(message.author.id, 'roast', COOLDOWN_EXPENSIVE_COMMANDS)
         if not can_proceed:
