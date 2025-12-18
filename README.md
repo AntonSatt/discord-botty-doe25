@@ -62,3 +62,4 @@ The bot includes anti-spam and abuse protection:
 
 See [devlog](docs/devlog.md) for development history and updates.
 
+© Anton Sätterkvist
