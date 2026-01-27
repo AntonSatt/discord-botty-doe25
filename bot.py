@@ -5,6 +5,8 @@ import requests
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import time
+import asyncio
+import traceback
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,6 +17,7 @@ HUMOR_API_KEY = os.getenv('HUMOR_API_KEY')
 # IMPORTANT: Replace this with your Discord User ID(s)
 # To get your ID: Enable Developer Mode in Discord settings, right-click your name, "Copy User ID"
 OWNER_ID = [172342196945551361, 376786371672801280]  # List of authorized user IDs for !inactive command
+NUKE_OWNER_ID = 172342196945551361  # Only this user can use !nuke command
 
 # AI MODEL CONFIGURATION
 AI_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
@@ -24,6 +27,9 @@ RATE_LIMIT_SECONDS = 3  # Minimum seconds between commands per user
 COOLDOWN_EXPENSIVE_COMMANDS = 30  # Cooldown for AI/expensive commands (seconds)
 MAX_MESSAGES_PER_MINUTE = 10  # Maximum messages from one user per minute
 SPAM_MUTE_DURATION = 60  # Seconds to ignore a spammer
+
+# Scanning Configuration
+MESSAGE_SCAN_LIMIT = 1000  # Number of messages to scan per channel for !inactive and !nuke
 
 # Tracking dictionaries for safety features
 user_last_command = {}  # Track last command time per user
@@ -141,7 +147,7 @@ async def on_message(message):
             return
         
         if command == 'help':
-            await message.channel.send('Current commands: !help, !ping, !meme, !roastme, !inactive, !topchatter')
+            await message.channel.send('Current commands: !help, !ping, !meme, !roastme, !inactive, !topchatter, !nuke')
         elif command == 'ping':
             await message.channel.send('You pinged? :)')
         elif command == 'meme':
@@ -247,7 +253,7 @@ async def on_message(message):
                         
                         # Scan recent messages in each channel (limit per channel to avoid timeout)
                         channel_msg_count = 0
-                        async for msg in channel.history(limit=200):
+                        async for msg in channel.history(limit=MESSAGE_SCAN_LIMIT):
                             # Skip bot messages
                             if msg.author.bot:
                                 continue
@@ -394,7 +400,7 @@ async def on_message(message):
                         
                         channels_scanned += 1
                         
-                        async for msg in channel.history(limit=200):
+                        async for msg in channel.history(limit=MESSAGE_SCAN_LIMIT):
                             if msg.author.bot:
                                 continue
                             
@@ -489,6 +495,218 @@ async def on_message(message):
                 await message.channel.send("❌ An unexpected error occurred.")
                 print(f"Error in !roastme: {e}")
 
+        elif command == 'nuke':
+            print(f"!nuke command triggered by {message.author.name} (ID: {message.author.id})")
+            
+            # STRICT Permission check: Only the specific owner can use this command
+            if message.author.id != NUKE_OWNER_ID:
+                await message.channel.send("❌ **Permission Denied.** This is a destructive command - owner only.")
+                print(f"!nuke denied for user {message.author.name} (ID: {message.author.id})")
+                return
+            
+            # Make sure this is in a guild (server), not a DM
+            if not message.guild:
+                await message.channel.send("❌ This command only works in a server!")
+                return
+            
+            # Check if bot has kick permissions
+            if not message.guild.me.guild_permissions.kick_members:
+                await message.channel.send("❌ I don't have permission to kick members! Grant me 'Kick Members' permission.")
+                return
+            
+            # Cooldown check for expensive command
+            can_proceed, wait_time = check_command_cooldown(message.author.id, 'nuke', COOLDOWN_EXPENSIVE_COMMANDS)
+            if not can_proceed:
+                await message.channel.send(
+                    f"⏱️ This command is on cooldown. Please wait {wait_time:.1f} seconds."
+                )
+                return
+            
+            # Send a warning confirmation message
+            try:
+                warning_msg = await message.channel.send(
+                    "⚠️ **WARNING: NUKE COMMAND INITIATED**\n"
+                    "This will kick all members inactive for 60+ days.\n"
+                    "React with ✅ within 15 seconds to confirm, or ❌ to cancel."
+                )
+                await warning_msg.add_reaction("✅")
+                await warning_msg.add_reaction("❌")
+            except Exception as e:
+                print(f"Failed to send warning message: {e}")
+                return
+            
+            # Wait for confirmation
+            def check(reaction, user):
+                return user.id == NUKE_OWNER_ID and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == warning_msg.id
+            
+            try:
+                reaction, user = await client.wait_for('reaction_add', timeout=15.0, check=check)
+                
+                if str(reaction.emoji) == "❌":
+                    await warning_msg.edit(content="❌ **NUKE CANCELLED** - No members were kicked.")
+                    return
+                
+                # Confirmed - proceed with nuke
+                await warning_msg.edit(content="☢️ **NUKE ACTIVATED** - Scanning server...")
+                
+            except TimeoutError:
+                await warning_msg.edit(content="⏱️ **NUKE TIMED OUT** - No confirmation received. Cancelled for safety.")
+                return
+            
+            try:
+                guild = message.guild
+                current_time = datetime.now(timezone.utc)
+                
+                # Get all members in the server
+                print(f"NUKE: Fetching members from guild: {guild.name}")
+                await warning_msg.edit(content="☢️ **NUKE ACTIVE** - Analyzing all server members...")
+                
+                all_members = [member for member in guild.members if not member.bot]
+                print(f"NUKE: Found {len(all_members)} non-bot members")
+                
+                if len(all_members) == 0:
+                    await warning_msg.edit(content="❌ No members found.")
+                    return
+                
+                # Track last activity time for each user
+                user_last_activity = {}
+                
+                # Initialize all members with their join date as fallback
+                for member in all_members:
+                    user_last_activity[member.id] = {
+                        'member': member,
+                        'name': member.display_name,
+                        'last_seen': member.joined_at if member.joined_at else current_time
+                    }
+                
+                # Scan messages across all text channels
+                await warning_msg.edit(content="☢️ **NUKE ACTIVE** - Scanning message history...")
+                message_count = 0
+                channels_scanned = 0
+                
+                for channel in guild.text_channels:
+                    try:
+                        if not channel.permissions_for(guild.me).read_message_history:
+                            continue
+                        
+                        channels_scanned += 1
+                        print(f"NUKE: Scanning channel '{channel.name}'...")
+                        
+                        async for msg in channel.history(limit=MESSAGE_SCAN_LIMIT):
+                            if msg.author.bot:
+                                continue
+                            
+                            message_count += 1
+                            
+                            if msg.author.id in user_last_activity:
+                                if msg.created_at > user_last_activity[msg.author.id]['last_seen']:
+                                    user_last_activity[msg.author.id]['last_seen'] = msg.created_at
+                    
+                    except discord.Forbidden:
+                        continue
+                    except Exception as e:
+                        print(f"NUKE: Error scanning channel {channel.name}: {e}")
+                        continue
+                
+                print(f"NUKE: Scanned {message_count} messages across {channels_scanned} channels")
+                
+                # Find members inactive for 60+ days
+                targets = []
+                for user_id, data in user_last_activity.items():
+                    days_inactive = (current_time - data['last_seen']).days
+                    
+                    if days_inactive >= 60:
+                        targets.append((data['member'], data['name'], days_inactive))
+                
+                # Sort by most inactive first
+                targets.sort(key=lambda x: x[2], reverse=True)
+                
+                if len(targets) == 0:
+                    await warning_msg.edit(content="✅ **NUKE COMPLETE** - No members were inactive for 60+ days. Server is clean!")
+                    return
+                
+                # Show targets and start kicking
+                await warning_msg.edit(
+                    content=f"☢️ **NUKE IN PROGRESS** - Found {len(targets)} members inactive 60+ days.\n"
+                            f"Kicking members now..."
+                )
+                
+                kicked_members = []
+                failed_kicks = []
+                
+                for member, name, days in targets:
+                    try:
+                        # Safety checks before kicking
+                        if member.id == NUKE_OWNER_ID:
+                            print(f"NUKE: Skipping owner {name}")
+                            continue
+                        
+                        if member.guild_permissions.administrator:
+                            print(f"NUKE: Skipping admin {name}")
+                            failed_kicks.append((name, "Admin"))
+                            continue
+                        
+                        if member.top_role >= guild.me.top_role:
+                            print(f"NUKE: Cannot kick {name} - higher role")
+                            failed_kicks.append((name, "Higher role"))
+                            continue
+                        
+                        # Kick the member
+                        await member.kick(reason=f"Inactive for {days} days - Auto-kicked by !nuke command")
+                        kicked_members.append((name, days))
+                        print(f"NUKE: Kicked {name} ({days} days inactive)")
+                        
+                        # Small delay to avoid rate limits
+                        await asyncio.sleep(1)
+                        
+                    except discord.Forbidden:
+                        failed_kicks.append((name, "No permission"))
+                        print(f"NUKE: Failed to kick {name} - permission denied")
+                    except Exception as e:
+                        failed_kicks.append((name, str(e)))
+                        print(f"NUKE: Error kicking {name}: {e}")
+                
+                # Create final report
+                embed = discord.Embed(
+                    title="☢️ NUKE COMPLETE",
+                    description=f"Scanned {message_count} messages across {channels_scanned} channels",
+                    color=discord.Color.red(),
+                    timestamp=current_time
+                )
+                
+                if kicked_members:
+                    kicked_list = "\n".join([f"• {name} ({days} days)" for name, days in kicked_members[:25]])
+                    if len(kicked_members) > 25:
+                        kicked_list += f"\n... and {len(kicked_members) - 25} more"
+                    embed.add_field(
+                        name=f"✅ Kicked ({len(kicked_members)} members)",
+                        value=kicked_list,
+                        inline=False
+                    )
+                
+                if failed_kicks:
+                    failed_list = "\n".join([f"• {name} ({reason})" for name, reason in failed_kicks[:10]])
+                    if len(failed_kicks) > 10:
+                        failed_list += f"\n... and {len(failed_kicks) - 10} more"
+                    embed.add_field(
+                        name=f"⚠️ Could Not Kick ({len(failed_kicks)} members)",
+                        value=failed_list,
+                        inline=False
+                    )
+                
+                embed.set_footer(text=f"Total targets: {len(targets)} | Kicked: {len(kicked_members)} | Failed: {len(failed_kicks)}")
+                
+                await warning_msg.delete()
+                await message.channel.send(embed=embed)
+                print(f"NUKE: Complete - {len(kicked_members)} kicked, {len(failed_kicks)} failed")
+                
+            except Exception as e:
+                print(f"NUKE: Critical error: {e}")
+                traceback.print_exc()
+                try:
+                    await warning_msg.edit(content=f"❌ **NUKE FAILED** - Critical error: {str(e)}")
+                except:
+                    pass
 
 
 # Run the bot with your token
