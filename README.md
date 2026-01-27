@@ -1,4 +1,4 @@
-# Discord bot for DevOps class DOE25
+# Discord bot for Chas Hub
 
 ## Try the bot:
 - Add the bot to your discord server: [Invite bot](https://discord.com/oauth2/authorize?client_id=1421000801098141817&permissions=67584&integration_type=0&scope=bot) 
@@ -10,6 +10,8 @@
 - `!meme` - Get a random meme
 - `!roast me` - Get roasted by AI (30s cooldown)
 - `!inactive` - **[Owner only]** Check for inactive server members
+- `!topchatter` - See the most active chatters in recent history
+- `!nuke` - **[OWNER ONLY - DESTRUCTIVE]** Kick members inactive for 60+ days
 
 ## !inactive Command Usage
 
@@ -48,6 +50,12 @@ The bot needs these permissions enabled in Discord Developer Portal:
 - Results are posted **only** where you run the command
 - Perfect for admin/mod channels
 - Regular members never see the report
+
+## !nuke Command
+
+**⚠️ OWNER ONLY - DESTRUCTIVE**
+
+Automatically kicks members inactive for 60+ days. Requires confirmation before executing.
 
 ## Safety Features
 
