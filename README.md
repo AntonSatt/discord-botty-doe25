@@ -1,3 +1,12 @@
+# NOTICE: This project has been superseded
+
+A completely rewritten and improved version is now available here:
+
+→ https://github.com/AntonSatt/sattbot
+
+Features include slash commands, per-server permissions, interactive setup, weekly AI RSS summaries, and more.
+
+
 # Discord bot for Chas Hub
 
 ## Try the bot:
